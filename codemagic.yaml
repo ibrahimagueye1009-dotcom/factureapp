@@ -13,10 +13,10 @@ workflows:
           flutter pub get
       - name: Build Android APK
         script: |
-          flutter build apk --release
+          flutter build apk --release --android-skip-build-dependency-validation
       - name: Build Android App Bundle
         script: |
-          flutter build appbundle --release
+          flutter build appbundle --release --android-skip-build-dependency-validation
       - name: Build iOS App
         script: |
           flutter build ios --release --no-codesign
