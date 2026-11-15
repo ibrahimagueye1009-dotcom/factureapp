@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "921517871961",
+    "project_id": "foyoooo",
+    "storage_bucket": "foyoooo.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:921517871961:android:f103845a5e6cab2e1eb248",
+        "android_client_info": {
+          "package_name": "sn.saerdrame.facturation_pro"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "921517871961-2fqri82l1o1ar94h8frh95cno7a8f9qc.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "sn.saerdrame.facturation_pro",
+            "certificate_hash": "4b6bb0e67276b1b1d9c257b90f67fdef976a226c"
+          }
+        },
+        {
+          "client_id": "921517871961-p7c2ddm254hs2fj10nb91rplegiqgp5q.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDxTOe7sMiyy9ivNOqccEqkSZ0lAJce8n0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "921517871961-p7c2ddm254hs2fj10nb91rplegiqgp5q.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "921517871961-cguhh1ljkrn3m8gg8r0rdk5ivbdvrv32.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "fayo"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
