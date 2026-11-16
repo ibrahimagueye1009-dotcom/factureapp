@@ -7,7 +7,7 @@ plugins {
 
 android {
     namespace = "sn.saerdrame.facturation_pro"
-    compileSdk = 35
+    compileSdk = 36
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -17,7 +17,7 @@ android {
     defaultConfig {
         applicationId = "sn.saerdrame.facturation_pro"
         minSdk = 23
-        targetSdk = 35
+        targetSdk = 36
         versionCode = flutter.versionCode
         versionName = flutter.versionName
     }
