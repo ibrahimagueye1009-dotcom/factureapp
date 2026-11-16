@@ -1,0 +1,175 @@
+name: Build iOS (Flutter)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      export_method:
+        description: "Méthode d'export (app-store / ad-hoc / development)"
+        required: false
+        default: 'app-store'
+
+jobs:
+  build_ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      BUNDLE_ID: sn.saerdrame.facturationPro
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter 3.47.6
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+
+      - name: Détermination de la méthode d'export
+        run: echo "EXPORT_METHOD=${{ inputs.export_method || 'app-store' }}" >> "$GITHUB_ENV"
+
+      - name: Get Flutter packages
+        run: flutter pub get
+
+      # ---- Firebase iOS ------------------------------------------------------
+      - name: Prepare GoogleService-Info.plist
+        env:
+          PLIST_CONTENT: ${{ secrets.FIREBASE_IOS_PLIST }}
+        run: |
+          if [ -n "$PLIST_CONTENT" ]; then
+            printf '%s' "$PLIST_CONTENT" > ios/Runner/GoogleService-Info.plist
+            echo "GoogleService-Info.plist écrit depuis le secret FIREBASE_IOS_PLIST."
+          else
+            printf '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>API_KEY</key><string>stub-api-key</string><key>GCM_SENDER_ID</key><string>000000000000</string><key>PLIST_VERSION</key><string>1</string><key>BUNDLE_ID</key><string>sn.saerdrame.facturationPro</string><key>PROJECT_ID</key><string>stub-project</string><key>STORAGE_BUCKET</key><string>stub-project.appspot.com</string><key>IS_ADS_ENABLED</key><false/><key>IS_ANALYTICS_ENABLED</key><false/><key>GOOGLE_APP_ID</key><string>1:000000000000:ios:stub0000000000</string></dict></plist>' > ios/Runner/GoogleService-Info.plist
+            echo "::warning::Secret FIREBASE_IOS_PLIST absent — plist factice généré. Le build compile, mais Firebase sera inopérant à l'exécution."
+          fi
+
+      - name: Inject Google Sign-In URL scheme (Info.plist)
+        run: |
+          PB=/usr/libexec/PlistBuddy
+          PLIST=ios/Runner/GoogleService-Info.plist
+          RCI=$("$PB" -c 'Print :REVERSED_CLIENT_ID' "$PLIST" 2>/dev/null || true)
+          CID=$("$PB" -c 'Print :CLIENT_ID' "$PLIST" 2>/dev/null || true)
+          if [ -n "$RCI" ]; then
+            "$PB" -c 'Add :CFBundleURLTypes array' ios/Runner/Info.plist 2>/dev/null || true
+            "$PB" -c 'Add :CFBundleURLTypes:0 dict' ios/Runner/Info.plist 2>/dev/null || true
+            "$PB" -c 'Add :CFBundleURLTypes:0:CFBundleURLName string GoogleSignInScheme' ios/Runner/Info.plist 2>/dev/null || true
+            "$PB" -c 'Add :CFBundleURLTypes:0:CFBundleURLSchemes array' ios/Runner/Info.plist 2>/dev/null || true
+            "$PB" -c "Add :CFBundleURLTypes:0:CFBundleURLSchemes:0 string $RCI" ios/Runner/Info.plist
+            if [ -n "$CID" ]; then
+              "$PB" -c "Add :GIDClientID string $CID" ios/Runner/Info.plist 2>/dev/null || true
+            fi
+            echo "URL scheme Google Sign-In injecté dans Info.plist."
+          else
+            echo "Pas de REVERSED_CLIENT_ID dans le plist — injection ignorée."
+          fi
+
+      # ---- CocoaPods -----------------------------------------------------------
+      - name: Install CocoaPods dependencies
+        run: |
+          cd ios
+          pod install
+
+      # ---- Apple credentials ---------------------------------------------------
+      - name: Vérification des secrets de signature
+        id: signing
+        env:
+          CERT_B64: ${{ secrets.APPLE_CERTIFICATE }}
+          PROFILE_B64: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          if [ -n "$CERT_B64" ] && [ -n "$PROFILE_B64" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+            echo "Secrets de signature détectés — build IPA signé."
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::APPLE_CERTIFICATE / APPLE_PROVISIONING_PROFILE absents — build iOS non signé (artefact .app seulement)."
+          fi
+
+      - name: Import du certificat de signature Apple
+        if: steps.signing.outputs.enabled == 'true'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ${{ secrets.APPLE_CERTIFICATE }}
+          p12-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+
+      - name: Installation du provisioning profile (extraction UUID + Team)
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          PROFILE_B64: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+        run: |
+          PROFILE="$RUNNER_TEMP/profile.mobileprovision"
+          printf '%s' "$PROFILE_B64" | python3 -c 'import base64,sys;sys.stdout.buffer.write(base64.b64decode(sys.stdin.read()))' > "$PROFILE"
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$PROFILE" "$HOME/Library/MobileDevice/Provisioning Profiles/profile.mobileprovision"
+          PLIST_RAW=$(security cms -D -i "$PROFILE")
+          PROFILE_UUID=$(printf '%s' "$PLIST_RAW" | /usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin)
+          TEAM_ID=$(printf '%s' "$PLIST_RAW" | /usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' /dev/stdin)
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "TEAM_ID=$TEAM_ID" >> "$GITHUB_ENV"
+          echo "Profile installé — UUID=$PROFILE_UUID, Team=$TEAM_ID."
+
+      - name: Injection des réglages de signature (Release.xcconfig)
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          if [ "$EXPORT_METHOD" = "development" ]; then
+            IDENTITY="Apple Development"
+          else
+            IDENTITY="iPhone Distribution"
+          fi
+          printf '\n// CI signing overrides (ne pas committer)\nCODE_SIGN_STYLE = Manual\nDEVELOPMENT_TEAM = %s\nPROVISIONING_PROFILE_SPECIFIER = %s\nCODE_SIGN_IDENTITY = %s\n"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = %s\n' "$TEAM_ID" "$PROFILE_UUID" "$IDENTITY" "$IDENTITY" >> ios/Flutter/Release.xcconfig
+
+      - name: Génération de ExportOptionsRelease.plist
+        if: steps.signing.outputs.enabled == 'true'
+        run: |
+          cat > ios/ExportOptionsRelease.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>${EXPORT_METHOD}</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>${BUNDLE_ID}</key>
+              <string>${PROFILE_UUID}</string>
+            </dict>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          EOF
+          echo "ExportOptionsRelease.plist généré (méthode : $EXPORT_METHOD)."
+
+      # ---- Build ----------------------------------------------------------------
+      - name: Build IPA signé
+        if: steps.signing.outputs.enabled == 'true'
+        run: flutter build ipa --release --export-options-plist=ios/ExportOptionsRelease.plist
+
+      - name: Build non signé (fallback sans certificats)
+        if: steps.signing.outputs.enabled == 'false'
+        run: flutter build ios --release --no-codesign
+
+      # ---- Artefacts --------------------------------------------------------------
+      - name: Upload IPA signé
+        if: steps.signing.outputs.enabled == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-IPA
+          path: build/ios/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Upload app non signée
+        if: steps.signing.outputs.enabled == 'false'
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-unsigned-app
+          path: build/ios/iphoneos/Runner.app
+          if-no-files-found: error

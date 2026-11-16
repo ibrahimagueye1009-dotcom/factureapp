@@ -4,7 +4,7 @@ workflows:
     max_build_duration: 60
     instance_type: mac_mini_m1
     environment:
-      flutter: 3.27.0
+      flutter: 3.47.6
       xcode: latest
       cocoapods: default
     scripts:
@@ -17,6 +17,14 @@ workflows:
       - name: Build Android App Bundle
         script: |
           flutter build appbundle --release --android-skip-build-dependency-validation
+      - name: Prepare GoogleService-Info.plist (iOS)
+        script: |
+          if [ -n "$FIREBASE_IOS_PLIST" ]; then
+            printf '%s' "$FIREBASE_IOS_PLIST" > ios/Runner/GoogleService-Info.plist
+          else
+            printf '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>API_KEY</key><string>stub-api-key</string><key>GCM_SENDER_ID</key><string>000000000000</string><key>PLIST_VERSION</key><string>1</string><key>BUNDLE_ID</key><string>sn.saerdrame.facturationPro</string><key>PROJECT_ID</key><string>stub-project</string><key>STORAGE_BUCKET</key><string>stub-project.appspot.com</string><key>GOOGLE_APP_ID</key><string>1:000000000000:ios:stub0000000000</string></dict></plist>' > ios/Runner/GoogleService-Info.plist
+            echo "WARNING: FIREBASE_IOS_PLIST non défini — plist factice généré."
+          fi
       - name: Build iOS App
         script: |
           flutter build ios --release --no-codesign
